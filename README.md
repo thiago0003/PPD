@@ -69,7 +69,7 @@ A organização dos dados e seus particionamentos de forma a favorecer a localid
 
 ## Threads
 
-´pthread_create(pthread_t * restrict thread, const pthread_attr_t *restrict attr, void*(*start_routine)(void *), void *retrict arg)´
+`pthread_create(pthread_t * restrict thread, const pthread_attr_t *restrict attr, void*(*start_routine)(void *), void *retrict arg)`
 
 * O valor de retorno de criação: 0 = sucesso, outro valor = código do erro.
 
@@ -85,12 +85,12 @@ Qualquer thread de um processo pode utilizar pthread_join para esperar por qualq
 
 ### Para a criação de um programa
 
-* Incluir a biblioteca ´#include <pthread.h>´
-* Definir o número de theads a ser criada ´#define NUM_THREADS 4´
-* Dentro da função criar um vetor de threads ´pthread_t threads[NUM_THREADS];´
-* Criar as threads ´int status = pthread_create(&threads[i], NULL, program, arg);´
+* Incluir a biblioteca `#include <pthread.h>`
+* Definir o número de theads a ser criada `#define NUM_THREADS 4`
+* Dentro da função criar um vetor de threads `pthread_t threads[NUM_THREADS];`
+* Criar as threads `int status = pthread_create(&threads[i], NULL, program, arg);`
 * Podemos fazer uma verificação de falha na criação 
-* Posteriormente esperamos o retorno da thread com ´int status = pthread_join(threads[i], NULL);´
+* Posteriormente esperamos o retorno da thread com `int status = pthread_join(threads[i], NULL);`
 
 * OBS: lembrando que o retorno 0 significa sucesso
 
@@ -98,12 +98,12 @@ Qualquer thread de um processo pode utilizar pthread_join para esperar por qualq
 Como visto, a chamada pthread_create prevê apenas um parâmetro na função, sendo esse parâmetro do tipo (void *), em C isso pode ser utilizado para passar ponteiros para qualquer posição de meória que contenha qualquer tipo de dado.
 Considerando a arquitetura 64 bits atuais, e um endereço de memória tem 64bits, logo também é possível passar como parâmetro para a função qualquer valor que caiba em 8 bytes. 
 
-Para a passagem do parâmetro devemos fazer um cast no dados para o tipo (void *) ´status = pthread_create(&threads[t], NULL, hello_w, (void *)&args[t]);´
+Para a passagem do parâmetro devemos fazer um cast no dados para o tipo (void *) `status = pthread_create(&threads[t], NULL, hello_w, (void *)&args[t]);`
 
-E na função receber esse parâmetro como ponteiro ´void * hello_w(void *arg)´. Dessa forma, basta convertermos para nosso tipo desejado ´int val = *(int *)arg;´ ou ´int * num = (int *)arg;´ e ´  int ind = *num;´. No caso da passagem do valor de forma direta, basta convertemos com ´(long int)num_int;´ pois não estamos passando uma posição de meória e sim um valor. 
+E na função receber esse parâmetro como ponteiro `void * hello_w(void *arg)`. Dessa forma, basta convertermos para nosso tipo desejado `int val = *(int *)arg;` ou `int * num = (int *)arg;` e `  int ind = *num;`. No caso da passagem do valor de forma direta, basta convertemos com `(long int)num_int;` pois não estamos passando uma posição de meória e sim um valor. 
 
 
-Para pegarmos um valor de retorno da thread devemos passar como parâmetro no pthread_join o ponteiro de retorno ´status = pthread_join(th_struct, (void **)&retval));´, dessa forma na variável ´retval´ teremos o retorno da função. E dentro da função basta colocar o valor no ´	pthread_exit((long int *)34);´
+Para pegarmos um valor de retorno da thread devemos passar como parâmetro no pthread_join o ponteiro de retorno `status = pthread_join(th_struct, (void **)&retval));`, dessa forma na variável `retval` teremos o retorno da função. E dentro da função basta colocar o valor no `	pthread_exit((long int *)34);`
 
 ### Compartilhamento de dados entre as Threads
 De maineira geral, todas as variáveis que forem definidas como globais, ou seja, que foram declaradas fora dos escopo de qualquer função no código, serão compartilhadas por todas as threads deste processo. Porém se houver acessos simultâneos a esses dados poderá ser necessário uma sincronização.
@@ -135,6 +135,49 @@ Algumas instruções que podem ser executadas de forma atômica em C/C++
 * __atomic_fetch_nand
 
 Também podemos declarar a variável do tipo atomica 
-* ´_Atomic int atomic_global = 0;´
+* `_Atomic int atomic_global = 0;`
 
 Dessa forma também é mapeado para o processador executala de forma atômica.
+
+
+## OpenMP (Open Multi-Processing)
+É uma extensão de linguagem que permite ao programador inserir marcas no código para que o compilador o transforme em código paralelo.
+Além disso, há suporte para paralelização de código usando processadores vetoriais, como GP-GPUs.
+
+OpenMP permite:
+* Criar times de threads para execução paralela de blocos de código
+* Especificar como dividir (share) as atividades de um bloco de código entre os membros de um grupo
+* Declarar variáveis compartilhadas e privadas
+* Sincronizar threads e permitir que executem operações de maneira exclusiva
+* Executar loops usando operações SIMD
+* Utilizar dispositivos como GPUs para processamento vetorial
+
+Esforço de paralelização de um programa com OpenMP resume-se, em geral, à identificação do paralelismo e não à reprogramação do código para implementar o paralelismo desejado.
+
+* `omp_get_thread_num()`: retorna o número lógico de cada thread dentro do time que está executando a região paralela.
+* `omp_get_num_threads()`: indica quantas threads há no time atual.
+* `private(varaivel)` : indica uma lista de variáveis que serão privadas.
+* `shared(variavel)` : indica que as variáveis listadas serão compartilhadas pelas threads do time.
+* `reduction(variavel)` :
+* Diretiva `Single`: Executa um trexo de código apenas por uma  thread. Theads no time que não executam a diretiva single esperam no final do código associado, exceto se a cláusula `nowait` for especificada.
+* `sections`: permite especificar seções dentro da região paralela  que devem ser divididas entre as threads do time onde cada section é executada apenas uma vez por qualquer uma das threads do time 
+* `#pragma omp atomic write`: esse tipo de acesso é traduzido pelo compilador em instruções do tipo ftech-and-add, impedindo múltiplas threads de escrever nessa localização ou lê-la simultaneamente.
+* `#pragma omp parallel firstprivate(variavel)`: Neste caso, cada thread to time terá uma cópia da variável, privada, sendo que todas essas cópias terão como valor inicial o valor atual da variável na master thread.
+* `reduction(:+variavel)`: Acumulador
+
+## Processamento Vetorial e SIMD
+### SIMD (Single Instruction, Multiple Data)
+Modo de execução que está associado à realização simultânea da mesma operação sobre diferentes dados (paralelismo de dados). 
+
+* Os principais obstáculos para a vetorização são o armazenamento dos dados de forma não contígua e as dependências de dados.
+* Laços sem definição do número de iterações, em geral, também não são paralelizáveis.
+
+A vetorização é mais facilmente aplicável a dados armazenados de maneira contígua na memória. Caso contrário, até pode ser possível copiar os dados para uma posição de memória que atenda essa consideração, mas essa operação nem sempre vale a pena.
+
+
+### Como utilizar AVX
+* `#include <xmmintrin.h>` : permite usar diretamente as instruções do processador como se fossem funções C.
+* `__m128 va, vb, vresult;` : declaração dos ponteiros para os registradores SIMD
+* `va = _mm_loadu_ps(a);    vb = _mm_loadu_ps(b); ` : carrega para os registradores SIMD o valor de "a" e "b".
+* `vresult = _mm_add_ps(va, vb);`: executa a soma em paralelo.
+* `_mm_storeu_ps(result, vresult);`: retorna o dado para uma variável do tipo array.
