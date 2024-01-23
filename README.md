@@ -349,6 +349,7 @@ De maneira geral, a programação com CUDA envolve as seguintes etapas:
 * Transferir os resultados da memória do *device* para a memória do *host*.
 
 A declaração e ativação de códigos para GPU ocorrem dentro do próprio programa, onde caca código de GPU é declarado como uma função que tem prefixo `__global__` dessa forma nosso compilador sabe que é necessário gerar o código para GPU. 
+Além disso, funções que são chamadas pelo kernel devem ser declaradas como `__device__`
 
 Variáveis declaradas dentro de uma função de kernel serão alocadas automaticamente na área de memória do devide. 
 Na ativação da função do kernel, especifica também a organização lógica da threads que serão utilizadas na execução desse código. 
@@ -386,3 +387,78 @@ Durante a execução de uma das threads, há variáveis que permitem a cada uma 
 * Dimensões do grid em blocos: `grimDim.x`, `grimDim.y`, `grimDim.z`
 
 As variáveis `threadIdx` e `blockIdx` indicam a posição lógica de cada thread na estrutura.
+
+### Geração de números aleatórios
+Considerando a complexidade e custo computacional para a geração de números aleatórios, foi criado uma biblioteca em CUDA `curand` que cumpre essa tarefa.
+
+### Escolhendo a organização das threads
+Sabendo que a organização das threads ocorre na forma de uma grade de blocos, a conta que precisa ser feita é:
+* Definir o número de threads do bloco
+* dividir o número de elementos a manipular pelo tamanho do bloco, resultando no tamanho da grade
+Dessa forma temos `numero de threads = num_blocos * tamanho_bloco`
+
+`block.x = 1024;`
+`grid.x = (nElem + block.x -1) / block.x;    // divisão com valores inteiros`
+
+O cálculo do índice que cada thread irá manipular, contudo, passa a ser calculado em função do número do bloco e desta thread dentro do bloco em que está:
+`idx = blockIdx.x * blockDim.x + threadIdx.x`
+`idy = blockIdx.y * blockDim.y + threadIdx.y`
+
+Entretanto, é possível que a divisão do número de elementos (iterações) pelo tamanho do bloco resulte num número de threads (blocos * tam blocos) maior que o número de iterações que precisam ser realizadas, dessa forma temos que verificar se as iterações estão dentro da iteração válida.
+
+### CUDA SMs (Stream Multiprocessors)
+Esse valor e o número de elementos de processamento dentro de cada SM mudam de acordo com a capacidade da placa.
+Cada SM tem tipicamente 32 processadores (na arquitetura da NVidia)
+
+ ### Execução de threads
+* Todos os SMs de uma GPU trabalham em paralelo, de forma independente
+
+* O particionamento do *grid* de *threads* de um *kernel* é feito atribuindo blocos inteiros aos SMs.
+
+* Dentro de um SM, as *threads* de cada bloco são divididas em grupos de 32 *threads* para execução, chamados *warps*.
+
+* A execução de um *warp* ocorre no modelo SIMT, com todas as *threads* executando a mesma sequência de instruções.
+  * Desvios condicionais no fluxo de instruções das *threads* de uma *warp* podem fazer com que algumas *threads*, que não seguiram o mesmo caminho no código, fiquem temporariamente paradas.
+
+* *Threads* em um SM compartilham a memória deste SM, que pode ser usada para comunicação eficiente entre elas.
+
+* Cooperações e sincronizações só são possíveis entre *threads* do mesmo bloco.
+
+### Linearização 
+É importante semple aplicar uma linearização do problema pois facilita no mapeamento dos índices da matriz ou vetor.
+
+### Gerenciamento de memória na GPU 
+Um dos aspectos fundamentais na programação usando GPUs é a comunicação CPU/GPU. Mais especificamente, a cópia de dados da memória RAM para a memória do dispositivo, para que sejam acessados pelas threads dos kernels, e vice-versa, trazendo para a RAM os dados resultados das manipulações em GPU.
+
+Essa transferência pode ser feita de maneira explícita, controlada pelo programa executando em CPU, ou pode ser feita de forma transparente, apoiada pelos mecanismos de endereçamento de E/S mapeada em meória. De todo modo, cabe ao programador especificar quais são as áreas de memória utilizadas pela GPU.
+
+Primeiramente é necessário reservar espaço na GPU, tendo alocados esses espaços, é possível copiar dados da memória RAM, também referida como host, para a memória do dispositivo (device).
+Uma vez que esses dados foram processados pela GPU, é preciso copiar os dados de interesse para a memória RAM.
+Na programação em CUDA, esse gerenciamento de memória pode ser feito de forma simplificada com funções de alocação e cópia.
+* `cudaError_t cudaMalloc(void** devPtr, seze_t size)` : Alocamos espaço na GPU
+* `cudaError_t cudaMemcpy(void* dst, const void* src, size_t count, cudaMemcpyKind kind)` : Transferimos os dados da RAM para a GPU `cudaMemcpyHostToDevice`
+* `cudaError_t cudaMemcpy(void* dst, const void* src, size_t count, cudaMemcpyKind kind)` : Transferimos os dados da GPU para a RAM `cudaMemcpyDeviceToHost`
+* `cudaError_t cudaFree(void* ptr)`: Liberamos o espaço alocado na GPU
+
+### Nomeação de variáveis 
+É comum que a nomeação de variáveis do dispositivo comecem com `d_`, e as variáveis do host com `h_`
+
+### CUDA Unified Memory 
+O mecanismo de memória unificada de CUDA cria um conjunto de áreas de memória gerenciadas que são compartilhadas entre CPU e GPU. Uma área de memória alocada com esse mecanismo é acessível diretamente, tanto pelo código em CPU quanto pelo código em GPU, usando o mesmo ponteiro. 
+De maneira simplificada, para alocar áreas de memória compartilhadas basta utilizar a função `cudaMallocManaged()`
+
+*IMPOSTANT*: Uma etapa a mais necessáriamente é a sincronização após a ativação do kernel, para garantir que as operações que manipulam os dados já foram concluídas, evitando transferência de dados que ainda estão em uso na GPU `cudaDeviceSynchronisze()` que bloqueia até que o dispositivo tenha concluído todas as operações requisitadas. 
+
+Há 2 aspectos principais no uso de áreas de memória unificada. Primeiro, o modelo de programação torna-se mais simples, sem ter que incorporar as cópias de dados entre CPU e GPU.
+Outro aspecto importante é que a cópia dos dados entre CPU e GPU sob demanda provê a localidade dos acessos e os ganhos de desempenho que isso proporciona, de forma transparente para a aplicação. O uso de memórias de alta velocidade, contudo, é um requisito para que o mecanismo de transferência sob demanda consiga prover todo o desempenho de GPUs modernas.
+
+Embora possa prover transferências em altas taxas de maneira transparente para a aplicação, o uso de memórias unificadas *talvez* perca em desempenho para programas que usam o modelo de alocação original mas que conhecem seus padrões de acesso à memória e que usem estratégias como a sobreposição de operações de transferência de dados com processamento. 
+Entre outros aspectos ressaltados está a constatação que para maximizar o desempenho, os dados devem ser mantidos o mais próximo possível da GPU.
+Em situações em que o volume de dados a manipular é maior que o espaço de endereçamento da GPU, o uso de memória unificada simplifica os acessos, deixando ao sistema o gerenciamento de quais parte dos dados vão estar efetivamente copiados para a memória da GPU. Isso nem sempre prove o melhor desempenho do que deixar ao programador copiar explicitamente na GPU os dados que serão manipulados. 
+
+*Atention*: Apesar do mecanismo eficiente de falta de páginas nas GPUs, o acesso concorrente de páginas pode gerar problemas (segmentation fault).
+
+
+Dada a eficiência do mecanismo de paginação na GPU, com transmissões mediante faltas de páginas, é possível que a estratégia de uso de memória unificada sirva para criar programas que requerem áreas de dados maiores do que o espaço disponível na GPU.
+
+Além disso, para padrões de acesso a posições esparsas dos dados, o carregamento das páginas sob demanda pode ser mais eficiente do que carregar todo o conjunto de dados para a memória da GPU.
